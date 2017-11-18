@@ -9,22 +9,25 @@ output: html_document
 
 ### Import Code & Needed Packages
 ```{r, message = FALSE}
+
 library(tidyverse)
 library(maps)
-setwd('/Users/oskipper/Documents/Data Science/DSAccelerator/SecondPhase/Coursera/ExploratoryDataAnlysis/Final Project/')
+library(stringr)
+setwd('/Users/oskipper/Documents/Data Science/DSAccelerator/SecondPhase/Coursera/ExploratoryDataAnlysis/coursera_eda_proj2/Accelerator Work/')
+
 NEI <- readRDS("summarySCC_PM25.rds")
 SCC <- readRDS("Source_Classification_Code.rds")
-
 
 ```
 
 
-# Custom Mapping Function
+# Custom Functions
+_Mapping Function_  
 For analysis used across multiple questions I will be looking at the distribution of emissions across counties by plotting them onto a map of the US to see trends. To do this I use the following function:
-Given a df with fips and values associated with those fips the following plots those onto a US map (along witha  provided title and legend title), with green shades representing lower values and red values representing high values (these can be changed with the custom lowCol and highCol function call). Function relies on the `maps` package being loaded.
+Given a df with fips and values associated with those fips (in the fipsValColName as a column in the original df) the following plots those onto a US map (along with a  provided title and legend title), with green shades representing lower values and red values representing high values (these can be changed with the custom lowCol and highCol function call). Function relies on the `maps` package being loaded.
 
 ```{r}
-plot_map <- function(df, plotTitle, legendTitle, lowCol, highCol){
+plot_map <- function(df, fipsValColName, plotTitle, legendTitle, lowCol, highCol){
   # Get county data that we can map
 if(missing(plotTitle)){
   plotTitle = "Here's A Map Of Something"
@@ -38,7 +41,7 @@ if(missing(lowCol)){
 if(missing(highCol)){
   highCol = "#a84017"
 }
-  
+df$fipsVals <- df[fipsValColName]
 cnty <- map_data("county")
 # Get fips data we can join on
 #data(county.fips)
@@ -60,6 +63,42 @@ cnty2 %>%
 
 }
 ```
+
+_Yearly Delta Calculation_  
+Given a data set with fips/SCC values and emission values for various years (fips/SCC & years in rows, emission values in columns) transforms the data set to be grouped by fips/SCC with each column being a year and the observation values being the emissions for that year. Also calculates the chage (`totalDelta`) for between the year 1999 and 2008. 
+We can then create a secondary fucntion fips_yearly_delta that does the same thing but just groups by fips
+```{r}
+
+fips_yearly_delta <- function(fips_data){
+
+output <-  fips_data %>%
+  mutate(fips = as.numeric(fips)) %>%
+  group_by(fips, year) %>%
+  summarise(totalEmissions = sum(Emissions)) %>%
+  spread(key = year, value = totalEmissions) %>%
+  filter(!is.na(`1999`), !is.na(`2008`)) %>%
+  mutate(totalDelta = (`2008`-`1999`)/(`1999`)*100)
+
+output
+}
+
+
+# fips_scc_yearly_delta <- function(df){
+#   output <-  df %>%
+#   mutate(fips = as.numeric(fips)) %>%
+#   mutate(SCC = as.factor(SCC)) %>% 
+#   group_by(fips, SCC, year) %>%
+#   summarise(totalEmissions = sum(Emissions)) %>%
+#   spread(key = year, value = totalEmissions) %>%
+#   filter(!is.na(`1999`), !is.na(`2008`)) %>%
+#   mutate(totalDelta = (`2008`-`1999`)/(`1999`)*100)
+#   
+#   output
+# }
+  
+
+```
+
 # Question 1
 __Question:__ Have total emissions from PM2.5 decreased in the United States from 1999 to 2008? Using the base plotting system, make a plot showing the total PM2.5 emission from all sources for each of the years 1999, 2002, 2005, and 2008.  
 
@@ -84,25 +123,19 @@ axis(1, at = xlabs, labels = xlabs, las = 0)
 
 The total amount of emissions measured has decreased in every 4 year period over time
 
-Are there any geographic trends from 1999 to 2008 by fips code?
+__Are there any geographic trends from 1999 to 2008 by fips code?__  
 
 The following graph examines for each county the detla in total emissions by county and visually plots that on a map of the united states.
-```{r}
+```{r, warning = FALSE}
 
 # For each FIPS --> See what the delta in emissions is from 1999 to 2008
 EmisDeltByFips <- NEI %>% 
-  mutate(fips = as.numeric(fips)) %>% 
-  group_by(fips, year) %>% 
-  summarise(totalEmissions = sum(Emissions)) %>% 
-  spread(key = year, value = totalEmissions) %>% 
-  filter(!is.na(`1999`), !is.na(`2008`)) %>% 
-  mutate(totalDelta = (`2008`-`1999`)/(`1999`)*100) %>% 
-  mutate(fipsVals = totalDelta)
+  fips_yearly_delta()
   
-#Restructure EmisDeltByFips to fit the plotting function
-plot_map(EmisDeltByFips, plotTitle = "Emission Changes By County From 1999 to 2008", legendTitle = "Percent Delta")
+plot_map(EmisDeltByFips, fipsValCol = 'totalDelta', plotTitle = "Emission Changes By County From 1999 to 2008", legendTitle = "Percent Delta")
+
 ```
-_Black values represent `NA` values. The mapping function pulled has a joining issue with a few of the counties which is why they show up black in this plot_
+_Black values represent `NA` values. The mapping function used from stack overflow has a joining issue with a few of the counties which is why they show up black in this plot_
 
 It looks like there are just a few counties with an extreme increase in Total Emissions output. Their delta is so extreme that they actually make even seeing the rest of the map difficult based on the color gradient used in the plotting function. The county of Bryan Georgia specifically has a delta of 847% from 1999 to 2008. 
 ```{r}
@@ -116,11 +149,12 @@ cnty2 %>%
   left_join(EmisDeltByFips, by = 'fips') %>% 
   select(region, subregion, totalDelta) %>% 
   arrange(desc(totalDelta)) %>% 
-  unique()
+  unique() %>% 
+  head(10)
   
   
 ```
-To make a map that provides a bit more visual insight into geographic trends, we can ignore the outliers (casting them to `NA` values) and look just at counties withing a +/- 100% delta. We see that in the majority of counties the emissions have decreased over time. The majority of counties that had an increase in emissions are in the South East, specifically in Georgia. But overall we can see that most counties in the US have decreased their emissions in the 9 year period we're looking at.
+To make a map that provides a bit more visual insight into geographic trends, we can ignore the outliers (casting them to `NA` values) and look just at counties within a +/- 100% delta. 
 
 ```{r}
 #Adjust extreme values
@@ -130,9 +164,13 @@ EmisDeltAdj <- EmisDeltByFips %>%
   mutate(totalDelta = ifelse(totalDelta <= -100, NA, totalDelta)) %>% 
   mutate(fipsVals = totalDelta)
 
-plot_map(EmisDeltAdj, plotTitle = "Emission Changes By County From 1999 to 2008", legendTitle = "Perecent Delta")
+plot_map(EmisDeltAdj, fipsValColName = 'totalDelta', plotTitle = "Emission Changes By County From 1999 to 2008", legendTitle = "Perecent Delta")
 
 ```
+
+
+We see that in the majority of counties the emissions have decreased over time. The majority of counties that had an increase in emissions are in the South East, specifically in Georgia. But overall we can see that most counties in the US have decreased their emissions in the 9 year period we're looking at.
+
 
 # Question 2
 __Question:__ Have total emissions from PM2.5 decreased in the Baltimore City, Maryland (𝚏𝚒𝚙𝚜 == "𝟸𝟺𝟻𝟷𝟶") from 1999 to 2008? Use the base plotting system to make a plot answering this question.
@@ -158,7 +196,7 @@ axis(1, at = xlabs, labels = xlabs, las = 0)
 Emissions dipped from 1999 to 2002, but then rose again in 2005  and dropped back to its lowest value yet in 2008
 
 # Question 3
-__Question 3__
+__Question:__
 Of the four types of sources indicated by the 𝚝𝚢𝚙𝚎 (point, nonpoint, onroad, nonroad) variable, which of these four sources have seen decreases in emissions from 1999–2008 for Baltimore City? Which have seen increases in emissions from 1999–2008? Use the ggplot2 plotting system to make a plot answer this question.
 
 ```{r}
@@ -173,12 +211,14 @@ NEI %>%
   ggtitle("Emissions by Emission Type Over Time") +
   scale_x_continuous(breaks = seq(1999, 2008, 3))
   
-```
+```  
+
+
 Baltimore specific Non-Point, Non-Road and On-Road emissions have all behaved relatively similarly. They have gone down consistently over time, but were relatively flat from 2002 to 2005.
 Point emissions rose from 1999 to 2005, and then dropped down to their original 1999 levels once 2008 came around.
 
 
-This plot is another way to look at the same information, with the y-axis scales normalized for each emission type (to account for the Non-Point emissions being so much higher than the other values). 
+The following plot is another way to look at the same information, with the y-axis scales normalized for each emission type (to account for the Non-Point emissions being so much higher than the other values). 
 ```{r}
 
 NEI %>% 
@@ -199,7 +239,8 @@ NEI %>%
 # Question 4
 __Question:__ Across the United States, how have emissions from coal combustion-related sources changed from 1999–2008?
 
-```{r}
+Join in the SCC dataset to examine this. After examining various columns, the EI.Sector has an encompassing view of coal combustion descriptors so we can use a regex match on that column to find all coal combustion-related sources.
+```{r, warning = FALSE}
 NEISCC <- NEI %>% 
             left_join(SCC, by = 'SCC')
 
@@ -219,33 +260,101 @@ coalComb %>%
   scale_x_continuous(breaks = seq(1999, 2008, 3))
 
 ```
-We can take advantage of the mapping function from earlier to plot how coal combustion has changed over time
-```{r}
+
+
+We can take advantage of the `fips_yearly_delta` and `plot_map` function from earlier to plot how coal combustion has changed over time
+```{r, warning=FALSE}
 
 coalCombMapData <- coalComb %>% 
-mutate(fips = as.numeric(fips)) %>% 
-  group_by(fips, year) %>% 
-  summarise(totalEmissions = sum(Emissions)) %>% 
-  spread(key = year, value = totalEmissions) %>% 
-  filter(!is.na(`1999`), !is.na(`2008`)) %>% 
-  mutate(totalDelta = (`2008`-`1999`)/(`1999`)*100) %>% 
-  mutate(fipsVals = totalDelta)
+  fips_yearly_delta()
 
-plot_map(coalCombMapData, "Coal Combustion Emission Changes From 1999 to 2008", "Percent Change")
+plot_map(coalCombMapData, fipsValColName = 'totalDelta', "Coal Combustion Emission Changes From 1999 to 2008", "Percent Change")
 
 ```
-From this map we see that most counties actually have no data for any coal combustion (black fill in the map). We also see a similar distribution trend we saw with total emissions -- there are a concentration of a few counties that have extremely increased coal emissions over the time period. This makes it hard to see the behaviour of counties that didn't change as much as they all just look white. 
-We can take a new strategy to adjust for these values. Instead of pushing these to `NA` values like we did before, we can actually plot them on a log scale (doing a slight sign adjustment for the negative values), so that a slight change in color actually shows a drastic change in emission delta.
+
+From this map we see that most counties actually have no data for any coal combustion (black fill in the map because values were NA). We also see a similar distribution trend that we saw with total emissions -- there are a concentration of a few counties that have extremely increased coal emissions over the time period. This makes it hard to see the behaviour of counties that didn't change as much as they all just look white. 
+We can take a new strategy to adjust for these values. Instead of pushing these to `NA` values like we did before, we can actually plot them on a log scale (doing a slight function adjustment to account for for the negative values), so that a slight change in color actually shows a drastic change in emission delta.
 
 ```{r}
 coalCombMapData2 <- coalCombMapData %>% 
-  mutate(fipsVals = ifelse(totalDelta >= 0, log(totalDelta), abs(log(abs(totalDelta)))*(-1)))
-#This mapping (math mapping, not geo mapping) function isn't actually perfect, and for deltas between -1 and 1 it isn't smooth. For the purpose of the visual graph this is fine and isn't even visually noticable on the small amount of counties it affects, but their is probably some better logic that could be done on this.
+  mutate(logDelta = log10(totalDelta + 101)-2.004 ) # Do a transformation so that all values > 0 and then take log, then subtract away 2.004 (log(101)) to transform back - this is to account for the fact that we can't take the log of negative numbers
 
-plot_map(coalCombMapData2, "Coal Combustion Emission Changes From 1999 to 2008", "Log(Percent Change)")
+
+plot_map(coalCombMapData2, 'logDelta', "Coal Combustion Emission Changes From 1999 to 2008", "Log(Percent Change)")
+
 ```
-From this new map we can see that there are actually a large amount of counties that had a slight increase in coal combustion over the time period. There is a concentration (both in total counts and extremity of increase) in Tenessee, Georgia and West Virginia. 
+
+
+From this new map we can see that there are actually a large amount of counties that had a slight increase in coal combustion over the time period. There is a high concentration (both in total counts and extremity of increase) in Tenessee, Georgia and West Virginia. 
 
 # Question 5
+__Question:__ How have emissions from motor vehicle sources changed from 1999–2008 in Baltimore City?
 
+After examining column values of the SCC data set we see that a combination of EI.Sector and SCC.Level.Two provide us with a way to limit to motor vehicle emissions.
+```{r, warning = FALSE}
+NEISCC <- NEI %>% 
+            left_join(SCC, by = 'SCC')
 
+SCC_veh <- SCC %>% 
+  filter(str_detect(SCC.Level.Two, regex('motor|vehicle', ignore_case = T)) == TRUE | 
+           str_detect(EI.Sector, regex('motor|vehicle', ignore_case = T)) == TRUE)
+  
+NEI %>% 
+  filter(fips == '24510') %>% 
+  inner_join(SCC_veh, by = 'SCC') %>% 
+  group_by(year) %>% 
+  summarise(totalEmissions = sum(Emissions)) %>% 
+  ggplot(aes(x = year, y =totalEmissions)) + 
+  geom_line()+
+  xlab("Year") +
+  ylab("PM2.5 Emissions (tons)") +
+  ggtitle("Baltimore Motor Vehicle Total Emissions Over Time") +
+  scale_x_continuous(breaks = seq(1999, 2008, 3))
+
+  
+
+NEI %>% 
+  filter(fips == '24510') %>% 
+  inner_join(SCC_veh, by = 'SCC') %>% 
+  group_by(year, EI.Sector) %>% 
+  summarise(totalEmissions = sum(Emissions)) %>% 
+  ggplot(aes(x = year, y =totalEmissions, color = EI.Sector)) + 
+  geom_line()+
+  xlab("Year") +
+  ylab("PM2.5 Emissions (tons)") +
+  ggtitle("Baltimore Motor Vehicle Total Emissions Over Time By Sector") +
+  scale_x_continuous(breaks = seq(1999, 2008, 3))
+
+  
+
+```
+Overall total emissions from motor vehicles in Baltimore have decreased over time (most significantly from 1999 to 2002), this was mainly driven by the decreaese of On-Road Heavy Duty Vehicles and On-Road Gasoline Light Vehicles (which are the two largest proportional contributors in Baltimore). Consistent decreases were not seen within all sectors (ie: the Non-Road Equipment - Gasoline sector) but these were proportionally small enough taht the overal trend was still negative
+
+# Question 6  
+
+We can use the logic from question 5 but filter to the LA fips as well.
+```{r, warning=FALSE}
+NEISCC <- NEI %>% 
+            left_join(SCC, by = 'SCC')
+
+SCC_veh <- SCC %>% 
+  filter(str_detect(SCC.Level.Two, regex('motor|vehicle', ignore_case = T)) == TRUE | 
+           str_detect(EI.Sector, regex('motor|vehicle', ignore_case = T)) == TRUE)
+  
+NEI %>% 
+  filter(fips == '24510' | fips == '06037') %>% 
+  inner_join(SCC_veh, by = 'SCC') %>% 
+  group_by(year, fips) %>% 
+  summarise(totalEmissions = sum(Emissions)) %>% 
+  ggplot(aes(x = year, y =totalEmissions, fill = fips)) + 
+  geom_bar(stat = "identity", position = "dodge")+
+  xlab("Year") +
+  ylab("PM2.5 Emissions (tons)") +
+  ggtitle("Los Angeles vs. Baltimore Motor Vehicle Total Emissions Over Time") +
+  scale_x_continuous(breaks = seq(1999, 2008, 3)) + 
+  facet_wrap(~fips, scale = "free") + 
+  scale_fill_discrete(labels = c("Los Angeles", "Baltimore"))
+
+```
+
+Baltimore not only emits less than LA, but also decreased more from 1999 to 2008. We can see that overall Baltimore has much smaller emissions (less than 10%) than LA. The scales have been adjusted so that LA doesn't dwarf Baltimore. Baltimore has also bene on a constant decrease in emissions from 1999 to 2008 (most extreme was from 1999 to 2002). LA on the otherhand actually saw an increase in 2002 and again in 2005. The decrease in 2008 still didn't put LA below it's original 1999 mark. 
