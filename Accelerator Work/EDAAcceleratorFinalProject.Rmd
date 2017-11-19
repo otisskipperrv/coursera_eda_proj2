@@ -83,20 +83,6 @@ output
 }
 
 
-# fips_scc_yearly_delta <- function(df){
-#   output <-  df %>%
-#   mutate(fips = as.numeric(fips)) %>%
-#   mutate(SCC = as.factor(SCC)) %>% 
-#   group_by(fips, SCC, year) %>%
-#   summarise(totalEmissions = sum(Emissions)) %>%
-#   spread(key = year, value = totalEmissions) %>%
-#   filter(!is.na(`1999`), !is.na(`2008`)) %>%
-#   mutate(totalDelta = (`2008`-`1999`)/(`1999`)*100)
-#   
-#   output
-# }
-  
-
 ```
 
 # Question 1
